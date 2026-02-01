@@ -62,4 +62,20 @@ async function updateStatus(req, res, next) {
   }
 }
 
-module.exports = {listUsers, updateRole, updateStatus};
+async function deleteUser(req, res, next) {
+  try {
+    const {id} = req.params;
+
+    const user = await User.findByIdAndDelete(id);
+    if (!user) throw new ApiError(404, 'User not found');
+
+    res.json({
+      message: 'User deleted',
+      user: {id: user._id, email: user.email, role: user.role},
+    });
+  } catch (e) {
+    next(e);
+  }
+}
+
+module.exports = {listUsers, updateRole, updateStatus, deleteUser};
