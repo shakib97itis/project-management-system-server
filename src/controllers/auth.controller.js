@@ -2,52 +2,73 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const User = require('../models/User');
 const Invite = require('../models/Invite');
-const {ApiError} = require('../utils/apiError');
-const {signAccessToken} = require('../utils/tokens');
+const { ApiError } = require('../utils/apiError');
+const { signAccessToken } = require('../utils/tokens');
+
+function buildAuthUser(user) {
+  return { id: user._id, name: user.name, email: user.email, role: user.role };
+}
 
 async function login(req, res, next) {
   try {
-    const {email, password} = req.body;
+    const { email, password } = req.body;
+    const normalizedEmail = email.toLowerCase();
 
-    const user = await User.findOne({email: email.toLowerCase()});
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user) throw new ApiError(401, 'Invalid credentials');
     if (user.status !== 'ACTIVE') throw new ApiError(403, 'User is inactive');
 
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok) throw new ApiError(401, 'Invalid credentials');
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) throw new ApiError(401, 'Invalid credentials');
 
-    const token = signAccessToken({sub: user._id.toString(), role: user.role});
+    const token = signAccessToken({
+      sub: user._id.toString(),
+      role: user.role,
+    });
     res.json({
       accessToken: token,
-      user: {id: user._id, name: user.name, email: user.email, role: user.role},
+      user: buildAuthUser(user),
     });
-  } catch (e) {
-    next(e);
+  } catch (error) {
+    next(error);
   }
 }
 
 async function invite(req, res, next) {
   try {
-    const {email, role} = req.body;
-    const lower = email.toLowerCase();
+    const { email, role } = req.body;
+    const normalizedEmail = email.toLowerCase();
 
-    const existingUser = await User.findOne({email: lower});
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) throw new ApiError(409, 'User already exists');
 
     const existingInvite = await Invite.findOne({
-      email: lower,
+      email: normalizedEmail,
       acceptedAt: null,
-      expiresAt: {$gt: new Date()},
+      expiresAt: { $gt: new Date() },
     });
     if (existingInvite) throw new ApiError(409, 'Active invite already exists');
 
-    const bytes = Number(process.env.INVITE_TOKEN_BYTES || 32);
-    const token = crypto.randomBytes(bytes).toString('hex');
+    const tokenBytes = Number.parseInt(
+      process.env.INVITE_TOKEN_BYTES || '32',
+      10,
+    );
+    const token = crypto.randomBytes(tokenBytes).toString('hex');
 
-    const hours = Number(process.env.INVITE_EXPIRES_HOURS || 48);
-    const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
+    const expirationHours = Number.parseInt(
+      process.env.INVITE_EXPIRES_HOURS || '48',
+      10,
+    );
+    const expiresAt = new Date(
+      Date.now() + expirationHours * 60 * 60 * 1000,
+    );
 
-    const invite = await Invite.create({email: lower, role, token, expiresAt});
+    const invite = await Invite.create({
+      email: normalizedEmail,
+      role,
+      token,
+      expiresAt,
+    });
 
     // Email simulation: return the token/link in response
     res.status(201).json({
@@ -61,30 +82,31 @@ async function invite(req, res, next) {
       },
       inviteLink: `/register?token=${invite.token}`,
     });
-  } catch (e) {
-    next(e);
+  } catch (error) {
+    next(error);
   }
 }
 
 async function registerViaInvite(req, res, next) {
   try {
-    const {token, name, password} = req.body;
+    const { token, name, password } = req.body;
 
-    const invite = await Invite.findOne({token});
+    const invite = await Invite.findOne({ token });
     if (!invite) throw new ApiError(400, 'Invalid invite token');
     if (invite.acceptedAt) throw new ApiError(400, 'Invite already used');
-    if (invite.expiresAt <= new Date())
+    const now = new Date();
+    if (invite.expiresAt <= now)
       throw new ApiError(400, 'Invite expired');
 
-    const existingUser = await User.findOne({email: invite.email});
+    const existingUser = await User.findOne({ email: invite.email });
     if (existingUser) throw new ApiError(409, 'User already exists');
 
-    const hashed = await bcrypt.hash(password, 12);
+    const hashedPassword = await bcrypt.hash(password, 12);
 
     const user = await User.create({
       name,
       email: invite.email,
-      password: hashed,
+      password: hashedPassword,
       role: invite.role,
       status: 'ACTIVE',
       invitedAt: new Date(),
@@ -100,11 +122,11 @@ async function registerViaInvite(req, res, next) {
     res.status(201).json({
       message: 'Registration complete',
       accessToken,
-      user: {id: user._id, name: user.name, email: user.email, role: user.role},
+      user: buildAuthUser(user),
     });
-  } catch (e) {
-    next(e);
+  } catch (error) {
+    next(error);
   }
 }
 
-module.exports = {login, invite, registerViaInvite};
+module.exports = { login, invite, registerViaInvite };

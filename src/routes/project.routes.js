@@ -1,13 +1,12 @@
 const router = require('express').Router();
-const {z} = require('zod');
-const {requireAuth} = require('../middleware/auth');
-const {requireRole} = require('../middleware/rbac');
-const {validate} = require('../middleware/validate');
+const { z } = require('zod');
+const { requireAuth } = require('../middleware/auth');
+const { requireRole } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
 const projectController = require('../controllers/project.controller');
 
 router.use(requireAuth);
 
-// All authenticated users can create and view :contentReference[oaicite:7]{index=7}
 router.post(
   '/',
   validate(
@@ -21,16 +20,14 @@ router.post(
   projectController.createProject,
 );
 
-//
 router.get('/', projectController.listProjects);
 
-// Admin only edit/delete :contentReference[oaicite:8]{index=8}
 router.patch(
   '/:id',
   requireRole('ADMIN'),
   validate(
     z.object({
-      params: z.object({id: z.string().min(5)}),
+      params: z.object({ id: z.string().min(5) }),
       body: z.object({
         name: z.string().min(2).optional(),
         description: z.string().optional(),
@@ -44,7 +41,7 @@ router.patch(
 router.delete(
   '/:id',
   requireRole('ADMIN'),
-  validate(z.object({params: z.object({id: z.string().min(5)})})),
+  validate(z.object({ params: z.object({ id: z.string().min(5) }) })),
   projectController.softDeleteProject,
 );
 

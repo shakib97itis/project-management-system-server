@@ -1,8 +1,8 @@
 const router = require('express').Router();
-const {z} = require('zod');
-const {validate} = require('../middleware/validate');
-const {requireAuth} = require('../middleware/auth');
-const {requireRole} = require('../middleware/rbac');
+const { z } = require('zod');
+const { validate } = require('../middleware/validate');
+const { requireAuth } = require('../middleware/auth');
+const { requireRole } = require('../middleware/rbac');
 const authController = require('../controllers/auth.controller');
 
 router.post(

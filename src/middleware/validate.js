@@ -1,19 +1,21 @@
-const {ApiError} = require('../utils/apiError');
+const { ApiError } = require('../utils/apiError');
 
 function validate(schema) {
   return (req, res, next) => {
-    const result = schema.safeParse({
+    const parseResult = schema.safeParse({
       body: req.body,
       params: req.params,
       query: req.query,
     });
 
-    if (!result.success) {
-      const msg = result.error.issues.map((i) => i.message).join(', ');
-      return next(new ApiError(400, msg));
+    if (!parseResult.success) {
+      const message = parseResult.error.issues
+        .map((issue) => issue.message)
+        .join(', ');
+      return next(new ApiError(400, message));
     }
     next();
   };
 }
 
-module.exports = {validate};
+module.exports = { validate };

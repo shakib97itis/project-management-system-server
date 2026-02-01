@@ -1,4 +1,4 @@
-const {ApiError} = require('../utils/apiError');
+const { ApiError } = require('../utils/apiError');
 
 function requireRole(...allowed) {
   return (req, res, next) => {
@@ -9,4 +9,4 @@ function requireRole(...allowed) {
   };
 }
 
-module.exports = {requireRole};
+module.exports = { requireRole };

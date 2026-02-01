@@ -3,7 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 
-const {errorHandler} = require('./middleware/error');
+const { errorHandler } = require('./middleware/error');
 const authRoutes = require('./routes/auth.routes');
 const userRoutes = require('./routes/user.routes');
 const projectRoutes = require('./routes/project.routes');
@@ -19,7 +19,7 @@ app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 app.use('/projects', projectRoutes);
 
-app.get('/health', (req, res) => res.json({ok: true}));
+app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.use(errorHandler);
 

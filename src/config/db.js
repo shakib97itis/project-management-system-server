@@ -1,9 +1,12 @@
 const mongoose = require('mongoose');
 
-async function connectDB(uri) {
+async function connectDatabase(uri) {
+  if (!uri) {
+    throw new Error('MONGO_URI is required');
+  }
   mongoose.set('strictQuery', true);
   await mongoose.connect(uri);
   console.log('MongoDB connected');
 }
 
-module.exports = {connectDB};
+module.exports = { connectDatabase };

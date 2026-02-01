@@ -1,9 +1,9 @@
 const Project = require('../models/Project');
-const {ApiError} = require('../utils/apiError');
+const { ApiError } = require('../utils/apiError');
 
 async function createProject(req, res, next) {
   try {
-    const {name, description = ''} = req.body;
+    const { name, description = '' } = req.body;
 
     const project = await Project.create({
       name,
@@ -11,15 +11,15 @@ async function createProject(req, res, next) {
       createdBy: req.user._id,
     });
 
-    res.status(201).json({message: 'Project created', project});
-  } catch (e) {
-    next(e);
+    res.status(201).json({ message: 'Project created', project });
+  } catch (error) {
+    next(error);
   }
 }
 
 async function listProjects(req, res, next) {
   try {
-    const projects = await Project.find({isDeleted: false}).sort({
+    const projects = await Project.find({ isDeleted: false }).sort({
       createdAt: -1,
     });
 
@@ -27,36 +27,36 @@ async function listProjects(req, res, next) {
       status: 'success',
       projects,
     });
-  } catch (e) {
-    next(e);
+  } catch (error) {
+    next(error);
   }
 }
 
 async function updateProject(req, res, next) {
   try {
-    const {id} = req.params;
+    const { id: projectId } = req.params;
 
-    const project = await Project.findById(id);
+    const project = await Project.findById(projectId);
     if (!project || project.isDeleted)
       throw new ApiError(404, 'Project not found');
 
-    const {name, description, status} = req.body;
+    const { name, description, status } = req.body;
     if (name !== undefined) project.name = name;
     if (description !== undefined) project.description = description;
     if (status !== undefined) project.status = status;
 
     await project.save();
-    res.json({message: 'Project updated', project});
-  } catch (e) {
-    next(e);
+    res.json({ message: 'Project updated', project });
+  } catch (error) {
+    next(error);
   }
 }
 
 async function softDeleteProject(req, res, next) {
   try {
-    const {id} = req.params;
+    const { id: projectId } = req.params;
 
-    const project = await Project.findById(id);
+    const project = await Project.findById(projectId);
     if (!project || project.isDeleted)
       throw new ApiError(404, 'Project not found');
 
@@ -64,9 +64,9 @@ async function softDeleteProject(req, res, next) {
     project.status = 'DELETED';
     await project.save();
 
-    res.json({message: 'Project soft-deleted'});
-  } catch (e) {
-    next(e);
+    res.json({ message: 'Project soft-deleted' });
+  } catch (error) {
+    next(error);
   }
 }
 

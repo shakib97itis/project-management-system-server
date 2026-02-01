@@ -1,33 +1,40 @@
 const User = require('../models/User');
-const {ApiError} = require('../utils/apiError');
+const { ApiError } = require('../utils/apiError');
+
+function buildUserResponse(user, fields) {
+  return fields.reduce((response, field) => {
+    response[field] = user[field];
+    return response;
+  }, { id: user._id });
+}
 
 async function listUsers(req, res, next) {
   try {
-    const page = Math.max(1, Number(req.query.page || 1));
-    const limit = Math.min(100, Math.max(1, Number(req.query.limit || 10)));
-    const skip = (page - 1) * limit;
+    const pageNumber = Math.max(1, Number(req.query.page || 1));
+    const pageSize = Math.min(100, Math.max(1, Number(req.query.limit || 10)));
+    const skip = (pageNumber - 1) * pageSize;
 
-    const [items, total] = await Promise.all([
+    const [users, total] = await Promise.all([
       User.find()
         .select('-password')
-        .sort({createdAt: -1})
+        .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(pageSize),
       User.countDocuments(),
     ]);
 
-    res.json({page, limit, total, items});
-  } catch (e) {
-    next(e);
+    res.json({ page: pageNumber, limit: pageSize, total, items: users });
+  } catch (error) {
+    next(error);
   }
 }
 
 async function updateRole(req, res, next) {
   try {
-    const {id} = req.params;
-    const {role} = req.body;
+    const { id: userId } = req.params;
+    const { role } = req.body;
 
-    const user = await User.findById(id);
+    const user = await User.findById(userId);
     if (!user) throw new ApiError(404, 'User not found');
 
     user.role = role;
@@ -35,19 +42,19 @@ async function updateRole(req, res, next) {
 
     res.json({
       message: 'Role updated',
-      user: {id: user._id, email: user.email, role: user.role},
+      user: buildUserResponse(user, ['email', 'role']),
     });
-  } catch (e) {
-    next(e);
+  } catch (error) {
+    next(error);
   }
 }
 
 async function updateStatus(req, res, next) {
   try {
-    const {id} = req.params;
-    const {status} = req.body;
+    const { id: userId } = req.params;
+    const { status } = req.body;
 
-    const user = await User.findById(id);
+    const user = await User.findById(userId);
     if (!user) throw new ApiError(404, 'User not found');
 
     user.status = status;
@@ -55,27 +62,27 @@ async function updateStatus(req, res, next) {
 
     res.json({
       message: 'Status updated',
-      user: {id: user._id, email: user.email, status: user.status},
+      user: buildUserResponse(user, ['email', 'status']),
     });
-  } catch (e) {
-    next(e);
+  } catch (error) {
+    next(error);
   }
 }
 
 async function deleteUser(req, res, next) {
   try {
-    const {id} = req.params;
+    const { id: userId } = req.params;
 
-    const user = await User.findByIdAndDelete(id);
+    const user = await User.findByIdAndDelete(userId);
     if (!user) throw new ApiError(404, 'User not found');
 
     res.json({
       message: 'User deleted',
-      user: {id: user._id, email: user.email, role: user.role},
+      user: buildUserResponse(user, ['email', 'role']),
     });
-  } catch (e) {
-    next(e);
+  } catch (error) {
+    next(error);
   }
 }
 
-module.exports = {listUsers, updateRole, updateStatus, deleteUser};
+module.exports = { listUsers, updateRole, updateStatus, deleteUser };
