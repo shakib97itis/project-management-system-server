@@ -1,6 +1,11 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { ApiError } = require('../utils/apiError');
+const {ApiError} = require('../utils/apiError');
+const {
+  ACCESS_TOKEN_SECRET,
+  JWT_ISSUER,
+  JWT_AUDIENCE,
+} = require('../config/auth');
 
 async function requireAuth(req, res, next) {
   try {
@@ -11,7 +16,14 @@ async function requireAuth(req, res, next) {
       throw new ApiError(401, 'Missing auth token');
     }
 
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const verifyOptions = {};
+    if (JWT_ISSUER) verifyOptions.issuer = JWT_ISSUER;
+    if (JWT_AUDIENCE) verifyOptions.audience = JWT_AUDIENCE;
+
+    const payload = jwt.verify(token, ACCESS_TOKEN_SECRET, verifyOptions);
+    if (payload.type && payload.type !== 'access') {
+      throw new ApiError(401, 'Invalid token type');
+    }
     const user = await User.findById(payload.sub);
 
     if (!user) throw new ApiError(401, 'User not found');

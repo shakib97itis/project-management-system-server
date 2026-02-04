@@ -1,13 +1,58 @@
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Invite = require('../models/Invite');
+const RefreshToken = require('../models/RefreshToken');
 const {ApiError} = require('../utils/apiError');
-const {signAccessToken, generateTokens} = require('../utils/tokens');
-const jwt = require('jsonwebtoken');
+const {generateTokens} = require('../utils/tokens');
+const {
+  REFRESH_TOKEN_SECRET,
+  JWT_ISSUER,
+  JWT_AUDIENCE,
+  buildCookieOptions,
+} = require('../config/auth');
 
 function buildAuthUser(user) {
   return {id: user._id, name: user.name, email: user.email, role: user.role};
+}
+
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function generateId() {
+  return crypto.randomUUID
+    ? crypto.randomUUID()
+    : crypto.randomBytes(16).toString('hex');
+}
+
+function setRefreshCookie(res, refreshToken) {
+  res.cookie('refreshToken', refreshToken, buildCookieOptions());
+}
+
+async function storeRefreshToken({
+  userId,
+  refreshToken,
+  familyId,
+  userAgent,
+  ip,
+}) {
+  const decoded = jwt.decode(refreshToken);
+  const expiresAt = decoded?.exp ? new Date(decoded.exp * 1000) : null;
+  if (!expiresAt) {
+    throw new ApiError(500, 'Failed to determine refresh token expiry');
+  }
+  const tokenHash = hashToken(refreshToken);
+  await RefreshToken.create({
+    user: userId,
+    tokenHash,
+    familyId,
+    expiresAt,
+    userAgent,
+    ip,
+  });
+  return tokenHash;
 }
 
 async function login(req, res, next) {
@@ -22,22 +67,24 @@ async function login(req, res, next) {
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) throw new ApiError(401, 'Invalid credentials');
 
+    const familyId = generateId();
+    const jti = generateId();
     const {accessToken, refreshToken} = generateTokens({
       sub: user._id.toString(),
       role: user.role,
+      jti,
+      familyId,
     });
 
-    // Save refresh token to DB
-    user.refreshToken = refreshToken;
-    await user.save();
-
-    // Send Refresh Token as an httpOnly cookie
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'Strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    await storeRefreshToken({
+      userId: user._id,
+      refreshToken,
+      familyId,
+      userAgent: req.get('user-agent') || null,
+      ip: req.ip,
     });
+
+    setRefreshCookie(res, refreshToken);
 
     res.json({
       accessToken,
@@ -49,25 +96,90 @@ async function login(req, res, next) {
 }
 
 const handleRefreshToken = async (req, res, next) => {
-  const cookies = req.cookies;
-  if (!cookies?.refreshToken)
-    return res.status(401).json({message: 'No refresh token'});
+  try {
+    const cookies = req.cookies;
+    if (!cookies?.refreshToken) {
+      return res.status(401).json({message: 'No refresh token'});
+    }
 
-  const refreshToken = cookies.refreshToken;
-  const user = await User.findOne({refreshToken});
-  if (!user) return res.status(403).json({message: 'Invalid refresh token'});
-
-  jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, (err, decoded) => {
-    if (err || user._id.toString() !== decoded.id)
+    const refreshToken = cookies.refreshToken;
+    let decoded;
+    try {
+      const verifyOptions = {};
+      if (JWT_ISSUER) verifyOptions.issuer = JWT_ISSUER;
+      if (JWT_AUDIENCE) verifyOptions.audience = JWT_AUDIENCE;
+      decoded = jwt.verify(refreshToken, REFRESH_TOKEN_SECRET, verifyOptions);
+    } catch (error) {
+      res.clearCookie('refreshToken', buildCookieOptions());
       return next(new ApiError(403, 'Invalid refresh token'));
+    }
 
-    const accessToken = signAccessToken({
+    if (decoded.type && decoded.type !== 'refresh') {
+      res.clearCookie('refreshToken', buildCookieOptions());
+      return next(new ApiError(403, 'Invalid refresh token type'));
+    }
+
+    const tokenHash = hashToken(refreshToken);
+    const session = await RefreshToken.findOne({tokenHash});
+    const now = new Date();
+
+    if (!session || session.revokedAt || session.expiresAt <= now) {
+      if (decoded.fid) {
+        await RefreshToken.updateMany(
+          {familyId: decoded.fid, revokedAt: null},
+          {revokedAt: now},
+        );
+      }
+      res.clearCookie('refreshToken', buildCookieOptions());
+      return next(new ApiError(403, 'Invalid refresh token'));
+    }
+
+    if (session.user.toString() !== decoded.sub) {
+      await RefreshToken.updateMany(
+        {familyId: session.familyId, revokedAt: null},
+        {revokedAt: now},
+      );
+      res.clearCookie('refreshToken', buildCookieOptions());
+      return next(new ApiError(403, 'Invalid refresh token'));
+    }
+
+    const user = await User.findById(session.user);
+    if (!user) {
+      await RefreshToken.updateMany(
+        {familyId: session.familyId, revokedAt: null},
+        {revokedAt: now},
+      );
+      res.clearCookie('refreshToken', buildCookieOptions());
+      return next(new ApiError(403, 'Invalid refresh token'));
+    }
+
+    const familyId = session.familyId;
+    const jti = generateId();
+    const {accessToken, refreshToken: newRefreshToken} = generateTokens({
       sub: user._id.toString(),
       role: user.role,
+      jti,
+      familyId,
     });
 
+    const newTokenHash = hashToken(newRefreshToken);
+    session.revokedAt = now;
+    session.replacedByHash = newTokenHash;
+    await session.save();
+
+    await storeRefreshToken({
+      userId: user._id,
+      refreshToken: newRefreshToken,
+      familyId,
+      userAgent: req.get('user-agent') || null,
+      ip: req.ip,
+    });
+
+    setRefreshCookie(res, newRefreshToken);
     res.json({accessToken});
-  });
+  } catch (error) {
+    next(error);
+  }
 };
 
 async function invite(req, res, next) {
@@ -148,22 +260,24 @@ async function registerViaInvite(req, res, next) {
     invite.acceptedAt = new Date();
     await invite.save();
 
+    const familyId = generateId();
+    const jti = generateId();
     const {accessToken, refreshToken} = generateTokens({
       sub: user._id.toString(),
       role: user.role,
+      jti,
+      familyId,
     });
 
-    // Save refresh token to DB
-    user.refreshToken = refreshToken;
-    await user.save();
-
-    // Send Refresh Token as an httpOnly cookie
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'Strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    await storeRefreshToken({
+      userId: user._id,
+      refreshToken,
+      familyId,
+      userAgent: req.get('user-agent') || null,
+      ip: req.ip,
     });
+
+    setRefreshCookie(res, refreshToken);
 
     res.status(201).json({
       message: 'Registration complete',
@@ -179,26 +293,19 @@ async function logout(req, res, next) {
   try {
     const cookies = req.cookies;
     if (!cookies?.refreshToken) {
-      res.clearCookie('refreshToken', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'Strict',
-      });
+      res.clearCookie('refreshToken', buildCookieOptions());
       return res.sendStatus(204);
     }
 
     const refreshToken = cookies.refreshToken;
-    const user = await User.findOne({refreshToken});
-    if (user) {
-      user.refreshToken = null;
-      await user.save();
+    const tokenHash = hashToken(refreshToken);
+    const session = await RefreshToken.findOne({tokenHash});
+    if (session && !session.revokedAt) {
+      session.revokedAt = new Date();
+      await session.save();
     }
 
-    res.clearCookie('refreshToken', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'Strict',
-    });
+    res.clearCookie('refreshToken', buildCookieOptions());
     return res.sendStatus(204);
   } catch (error) {
     next(error);

@@ -21,7 +21,6 @@ const userSchema = new mongoose.Schema(
       enum: ['ACTIVE', 'INACTIVE'],
       default: 'ACTIVE',
     },
-    refreshToken: {type: String},
     invitedAt: {type: Date},
   },
   {timestamps: {createdAt: 'createdAt', updatedAt: 'updatedAt'}},

@@ -8,6 +8,10 @@ function buildUserResponse(user, fields) {
   }, { id: user._id });
 }
 
+async function countActiveAdmins() {
+  return User.countDocuments({ role: 'ADMIN', status: 'ACTIVE' });
+}
+
 async function listUsers(req, res, next) {
   try {
     const pageNumber = Math.max(1, Number(req.query.page || 1));
@@ -37,6 +41,17 @@ async function updateRole(req, res, next) {
     const user = await User.findById(userId);
     if (!user) throw new ApiError(404, 'User not found');
 
+    if (
+      user.role === 'ADMIN' &&
+      role !== 'ADMIN' &&
+      user.status === 'ACTIVE'
+    ) {
+      const activeAdmins = await countActiveAdmins();
+      if (activeAdmins <= 1) {
+        throw new ApiError(409, 'Cannot remove the last active admin');
+      }
+    }
+
     user.role = role;
     await user.save();
 
@@ -57,6 +72,17 @@ async function updateStatus(req, res, next) {
     const user = await User.findById(userId);
     if (!user) throw new ApiError(404, 'User not found');
 
+    if (
+      user.role === 'ADMIN' &&
+      user.status === 'ACTIVE' &&
+      status === 'INACTIVE'
+    ) {
+      const activeAdmins = await countActiveAdmins();
+      if (activeAdmins <= 1) {
+        throw new ApiError(409, 'Cannot deactivate the last active admin');
+      }
+    }
+
     user.status = status;
     await user.save();
 
@@ -73,8 +99,17 @@ async function deleteUser(req, res, next) {
   try {
     const { id: userId } = req.params;
 
-    const user = await User.findByIdAndDelete(userId);
+    const user = await User.findById(userId);
     if (!user) throw new ApiError(404, 'User not found');
+
+    if (user.role === 'ADMIN' && user.status === 'ACTIVE') {
+      const activeAdmins = await countActiveAdmins();
+      if (activeAdmins <= 1) {
+        throw new ApiError(409, 'Cannot delete the last active admin');
+      }
+    }
+
+    await user.deleteOne();
 
     res.json({
       message: 'User deleted',
