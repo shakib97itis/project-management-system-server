@@ -1,8 +1,8 @@
 const router = require('express').Router();
-const { z } = require('zod');
-const { validate } = require('../middleware/validate');
-const { requireAuth } = require('../middleware/auth');
-const { requireRole } = require('../middleware/rbac');
+const {z} = require('zod');
+const {validate} = require('../middleware/validate');
+const {requireAuth} = require('../middleware/auth');
+const {requireRole} = require('../middleware/rbac');
 const authController = require('../controllers/auth.controller');
 
 router.post(
@@ -46,5 +46,10 @@ router.post(
   ),
   authController.registerViaInvite,
 );
+
+router.post('/refresh', authController.handleRefreshToken);
+
+// Logout: clears refresh token cookie and server-side token (if present)
+router.post('/logout', authController.logout);
 
 module.exports = router;

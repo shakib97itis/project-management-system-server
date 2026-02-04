@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, trim: true },
+    name: {type: String, required: true, trim: true},
     email: {
       type: String,
       required: true,
@@ -10,7 +10,7 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
-    password: { type: String, required: true }, // hashed
+    password: {type: String, required: true}, // hashed
     role: {
       type: String,
       enum: ['ADMIN', 'MANAGER', 'STAFF'],
@@ -21,9 +21,10 @@ const userSchema = new mongoose.Schema(
       enum: ['ACTIVE', 'INACTIVE'],
       default: 'ACTIVE',
     },
-    invitedAt: { type: Date },
+    refreshToken: {type: String},
+    invitedAt: {type: Date},
   },
-  { timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' } },
+  {timestamps: {createdAt: 'createdAt', updatedAt: 'updatedAt'}},
 );
 
 module.exports = mongoose.model('User', userSchema);

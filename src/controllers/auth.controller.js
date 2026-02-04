@@ -2,31 +2,45 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const User = require('../models/User');
 const Invite = require('../models/Invite');
-const { ApiError } = require('../utils/apiError');
-const { signAccessToken } = require('../utils/tokens');
+const {ApiError} = require('../utils/apiError');
+const {signAccessToken, generateTokens} = require('../utils/tokens');
+const jwt = require('jsonwebtoken');
 
 function buildAuthUser(user) {
-  return { id: user._id, name: user.name, email: user.email, role: user.role };
+  return {id: user._id, name: user.name, email: user.email, role: user.role};
 }
 
 async function login(req, res, next) {
   try {
-    const { email, password } = req.body;
+    const {email, password} = req.body;
     const normalizedEmail = email.toLowerCase();
 
-    const user = await User.findOne({ email: normalizedEmail });
+    const user = await User.findOne({email: normalizedEmail});
     if (!user) throw new ApiError(401, 'Invalid credentials');
     if (user.status !== 'ACTIVE') throw new ApiError(403, 'User is inactive');
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) throw new ApiError(401, 'Invalid credentials');
 
-    const token = signAccessToken({
+    const {accessToken, refreshToken} = generateTokens({
       sub: user._id.toString(),
       role: user.role,
     });
+
+    // Save refresh token to DB
+    user.refreshToken = refreshToken;
+    await user.save();
+
+    // Send Refresh Token as an httpOnly cookie
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
     res.json({
-      accessToken: token,
+      accessToken,
       user: buildAuthUser(user),
     });
   } catch (error) {
@@ -34,18 +48,40 @@ async function login(req, res, next) {
   }
 }
 
+const handleRefreshToken = async (req, res, next) => {
+  const cookies = req.cookies;
+  if (!cookies?.refreshToken)
+    return res.status(401).json({message: 'No refresh token'});
+
+  const refreshToken = cookies.refreshToken;
+  const user = await User.findOne({refreshToken});
+  if (!user) return res.status(403).json({message: 'Invalid refresh token'});
+
+  jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, (err, decoded) => {
+    if (err || user._id.toString() !== decoded.id)
+      return next(new ApiError(403, 'Invalid refresh token'));
+
+    const accessToken = signAccessToken({
+      sub: user._id.toString(),
+      role: user.role,
+    });
+
+    res.json({accessToken});
+  });
+};
+
 async function invite(req, res, next) {
   try {
-    const { email, role } = req.body;
+    const {email, role} = req.body;
     const normalizedEmail = email.toLowerCase();
 
-    const existingUser = await User.findOne({ email: normalizedEmail });
+    const existingUser = await User.findOne({email: normalizedEmail});
     if (existingUser) throw new ApiError(409, 'User already exists');
 
     const existingInvite = await Invite.findOne({
       email: normalizedEmail,
       acceptedAt: null,
-      expiresAt: { $gt: new Date() },
+      expiresAt: {$gt: new Date()},
     });
     if (existingInvite) throw new ApiError(409, 'Active invite already exists');
 
@@ -59,9 +95,7 @@ async function invite(req, res, next) {
       process.env.INVITE_EXPIRES_HOURS || '48',
       10,
     );
-    const expiresAt = new Date(
-      Date.now() + expirationHours * 60 * 60 * 1000,
-    );
+    const expiresAt = new Date(Date.now() + expirationHours * 60 * 60 * 1000);
 
     const invite = await Invite.create({
       email: normalizedEmail,
@@ -89,16 +123,15 @@ async function invite(req, res, next) {
 
 async function registerViaInvite(req, res, next) {
   try {
-    const { token, name, password } = req.body;
+    const {token, name, password} = req.body;
 
-    const invite = await Invite.findOne({ token });
+    const invite = await Invite.findOne({token});
     if (!invite) throw new ApiError(400, 'Invalid invite token');
     if (invite.acceptedAt) throw new ApiError(400, 'Invite already used');
     const now = new Date();
-    if (invite.expiresAt <= now)
-      throw new ApiError(400, 'Invite expired');
+    if (invite.expiresAt <= now) throw new ApiError(400, 'Invite expired');
 
-    const existingUser = await User.findOne({ email: invite.email });
+    const existingUser = await User.findOne({email: invite.email});
     if (existingUser) throw new ApiError(409, 'User already exists');
 
     const hashedPassword = await bcrypt.hash(password, 12);
@@ -115,10 +148,23 @@ async function registerViaInvite(req, res, next) {
     invite.acceptedAt = new Date();
     await invite.save();
 
-    const accessToken = signAccessToken({
+    const {accessToken, refreshToken} = generateTokens({
       sub: user._id.toString(),
       role: user.role,
     });
+
+    // Save refresh token to DB
+    user.refreshToken = refreshToken;
+    await user.save();
+
+    // Send Refresh Token as an httpOnly cookie
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
     res.status(201).json({
       message: 'Registration complete',
       accessToken,
@@ -129,4 +175,34 @@ async function registerViaInvite(req, res, next) {
   }
 }
 
-module.exports = { login, invite, registerViaInvite };
+async function logout(req, res, next) {
+  try {
+    const cookies = req.cookies;
+    if (!cookies?.refreshToken) {
+      res.clearCookie('refreshToken', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'Strict',
+      });
+      return res.sendStatus(204);
+    }
+
+    const refreshToken = cookies.refreshToken;
+    const user = await User.findOne({refreshToken});
+    if (user) {
+      user.refreshToken = null;
+      await user.save();
+    }
+
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+    });
+    return res.sendStatus(204);
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = {login, invite, registerViaInvite, handleRefreshToken, logout};
