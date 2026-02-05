@@ -14,7 +14,13 @@ const {
 } = require('../config/auth');
 
 function buildAuthUser(user) {
-  return {id: user._id, name: user.name, email: user.email, role: user.role};
+  return {
+    id: user?._id?.toString?.() ?? String(user?._id),
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    status: user.status,
+  };
 }
 
 function hashToken(token) {
@@ -29,6 +35,10 @@ function generateId() {
 
 function setRefreshCookie(res, refreshToken) {
   res.cookie('refreshToken', refreshToken, buildCookieOptions());
+}
+
+function clearRefreshCookie(res) {
+  res.clearCookie('refreshToken', {...buildCookieOptions(), maxAge: 0});
 }
 
 async function storeRefreshToken({
@@ -95,6 +105,14 @@ async function login(req, res, next) {
   }
 }
 
+async function me(req, res, next) {
+  try {
+    res.json({user: buildAuthUser(req.user)});
+  } catch (error) {
+    next(error);
+  }
+}
+
 const handleRefreshToken = async (req, res, next) => {
   try {
     const cookies = req.cookies;
@@ -110,12 +128,12 @@ const handleRefreshToken = async (req, res, next) => {
       if (JWT_AUDIENCE) verifyOptions.audience = JWT_AUDIENCE;
       decoded = jwt.verify(refreshToken, REFRESH_TOKEN_SECRET, verifyOptions);
     } catch (error) {
-      res.clearCookie('refreshToken', buildCookieOptions());
+      clearRefreshCookie(res);
       return next(new ApiError(403, 'Invalid refresh token'));
     }
 
     if (decoded.type && decoded.type !== 'refresh') {
-      res.clearCookie('refreshToken', buildCookieOptions());
+      clearRefreshCookie(res);
       return next(new ApiError(403, 'Invalid refresh token type'));
     }
 
@@ -130,7 +148,7 @@ const handleRefreshToken = async (req, res, next) => {
           {revokedAt: now},
         );
       }
-      res.clearCookie('refreshToken', buildCookieOptions());
+      clearRefreshCookie(res);
       return next(new ApiError(403, 'Invalid refresh token'));
     }
 
@@ -139,18 +157,27 @@ const handleRefreshToken = async (req, res, next) => {
         {familyId: session.familyId, revokedAt: null},
         {revokedAt: now},
       );
-      res.clearCookie('refreshToken', buildCookieOptions());
+      clearRefreshCookie(res);
       return next(new ApiError(403, 'Invalid refresh token'));
     }
 
-    const user = await User.findById(session.user);
+    const user = await User.findById(session.user).select('-password');
     if (!user) {
       await RefreshToken.updateMany(
         {familyId: session.familyId, revokedAt: null},
         {revokedAt: now},
       );
-      res.clearCookie('refreshToken', buildCookieOptions());
+      clearRefreshCookie(res);
       return next(new ApiError(403, 'Invalid refresh token'));
+    }
+
+    if (user.status !== 'ACTIVE') {
+      await RefreshToken.updateMany(
+        {familyId: session.familyId, revokedAt: null},
+        {revokedAt: now},
+      );
+      clearRefreshCookie(res);
+      return next(new ApiError(403, 'User is inactive'));
     }
 
     const familyId = session.familyId;
@@ -176,7 +203,7 @@ const handleRefreshToken = async (req, res, next) => {
     });
 
     setRefreshCookie(res, newRefreshToken);
-    res.json({accessToken});
+    res.json({accessToken, user: buildAuthUser(user)});
   } catch (error) {
     next(error);
   }
@@ -293,7 +320,7 @@ async function logout(req, res, next) {
   try {
     const cookies = req.cookies;
     if (!cookies?.refreshToken) {
-      res.clearCookie('refreshToken', buildCookieOptions());
+      clearRefreshCookie(res);
       return res.sendStatus(204);
     }
 
@@ -305,11 +332,11 @@ async function logout(req, res, next) {
       await session.save();
     }
 
-    res.clearCookie('refreshToken', buildCookieOptions());
+    clearRefreshCookie(res);
     return res.sendStatus(204);
   } catch (error) {
     next(error);
   }
 }
 
-module.exports = {login, invite, registerViaInvite, handleRefreshToken, logout};
+module.exports = {login, invite, registerViaInvite, me, handleRefreshToken, logout};

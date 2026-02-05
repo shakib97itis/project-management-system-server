@@ -71,6 +71,8 @@ router.post(
   authController.registerViaInvite,
 );
 
+router.get('/me', requireAuth, authController.me);
+
 router.post('/refresh', refreshLimiter, authController.handleRefreshToken);
 
 // Logout: clears refresh token cookie and server-side token (if present)

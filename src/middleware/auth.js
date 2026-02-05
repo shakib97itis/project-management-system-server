@@ -24,7 +24,7 @@ async function requireAuth(req, res, next) {
     if (payload.type && payload.type !== 'access') {
       throw new ApiError(401, 'Invalid token type');
     }
-    const user = await User.findById(payload.sub);
+    const user = await User.findById(payload.sub).select('-password');
 
     if (!user) throw new ApiError(401, 'User not found');
     if (user.status !== 'ACTIVE') throw new ApiError(403, 'User is inactive');
