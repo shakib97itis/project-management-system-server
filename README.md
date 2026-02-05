@@ -82,7 +82,7 @@ npm start
 `GET /health` returns:
 
 ```json
-{ "ok": true }
+{"ok": true}
 ```
 
 ## Authentication overview
@@ -111,40 +111,40 @@ More examples: `auth.md`.
 All error responses are JSON in the form:
 
 ```json
-{ "message": "..." }
+{"message": "..."}
 ```
 
 ### Auth (`/auth`)
 
-| Method | Path | Auth | Role | Notes |
-|---|---|---|---|---|
-| `POST` | `/auth/login` | No | - | Returns `{ accessToken, user }` and sets `refreshToken` cookie |
-| `POST` | `/auth/refresh` | Cookie | - | Rotates refresh token and returns `{ accessToken, user }` |
-| `POST` | `/auth/logout` | Optional | - | Clears refresh cookie; returns `204` |
-| `GET` | `/auth/me` | Bearer | Any | Returns `{ user }` |
-| `POST` | `/auth/invite` | Bearer | `ADMIN` | Creates an invite; response includes invite token/link (email sending is not implemented) |
-| `POST` | `/auth/register-via-invite` | No | - | Completes registration from invite token; sets refresh cookie |
+| Method | Path                        | Auth     | Role    | Notes                                                                                     |
+| ------ | --------------------------- | -------- | ------- | ----------------------------------------------------------------------------------------- |
+| `POST` | `/auth/login`               | No       | -       | Returns `{ accessToken, user }` and sets `refreshToken` cookie                            |
+| `POST` | `/auth/refresh`             | Cookie   | -       | Rotates refresh token and returns `{ accessToken, user }`                                 |
+| `POST` | `/auth/logout`              | Optional | -       | Clears refresh cookie; returns `204`                                                      |
+| `GET`  | `/auth/me`                  | Bearer   | Any     | Returns `{ user }`                                                                        |
+| `POST` | `/auth/invite`              | Bearer   | `ADMIN` | Creates an invite; response includes invite token/link (email sending is not implemented) |
+| `POST` | `/auth/register-via-invite` | No       | -       | Completes registration from invite token; sets refresh cookie                             |
 
 ### Users (`/users`) — Admin only
 
 All `/users` routes require `Authorization: Bearer <accessToken>` and `ADMIN` role.
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/users?page=&limit=` | List users (paginated) |
-| `PATCH` | `/users/:id/role` | Update a user's role (`ADMIN|MANAGER|STAFF`) |
-| `PATCH` | `/users/:id/status` | Update a user's status (`ACTIVE|INACTIVE`) |
-| `DELETE` | `/users/:id` | Delete a user |
+| Method   | Path                  | Description                     |
+| -------- | --------------------- | ------------------------------- | ---------- | ------- |
+| `GET`    | `/users?page=&limit=` | List users (paginated)          |
+| `PATCH`  | `/users/:id/role`     | Update a user's role (`ADMIN    | MANAGER    | STAFF`) |
+| `PATCH`  | `/users/:id/status`   | Update a user's status (`ACTIVE | INACTIVE`) |
+| `DELETE` | `/users/:id`          | Delete a user                   |
 
 ### Projects (`/projects`)
 
 All `/projects` routes require `Authorization: Bearer <accessToken>`.
 
-| Method | Path | Role | Description |
-|---|---|---|---|
-| `POST` | `/projects` | Any | Create a project |
-| `GET` | `/projects` | Any | List non-deleted projects |
-| `PATCH` | `/projects/:id` | `ADMIN` | Update project fields / archive |
+| Method   | Path            | Role    | Description                          |
+| -------- | --------------- | ------- | ------------------------------------ |
+| `POST`   | `/projects`     | Any     | Create a project                     |
+| `GET`    | `/projects`     | Any     | List non-deleted projects            |
+| `PATCH`  | `/projects/:id` | `ADMIN` | Update project fields / archive      |
 | `DELETE` | `/projects/:id` | `ADMIN` | Soft delete (marks `isDeleted=true`) |
 
 ## Admin recovery / seeding
